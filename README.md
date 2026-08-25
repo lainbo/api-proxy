@@ -18,6 +18,12 @@ make run
 curl http://127.0.0.1:8000/health
 ```
 
+健康检查会返回实现类型和构建版本；本地构建默认显示 `version: "dev"`：
+
+```json
+{"status":"ok","runtime":"go","version":"dev","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
+```
+
 Rust 版：
 
 ```bash
@@ -32,6 +38,12 @@ make rust-run
 make build
 ssh root@<VPS_IP> 'install -d -m 755 /opt/api-proxy'
 scp api-proxy root@<VPS_IP>:/opt/api-proxy/api-proxy
+```
+
+需要让发布产物可追溯到源码提交时，在构建阶段注入完整 Git commit SHA：
+
+```bash
+make build VERSION="$(git rev-parse HEAD)"
 ```
 
 在 VPS 上直接运行：

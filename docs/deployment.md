@@ -16,6 +16,12 @@ API Proxy 的运行边界只有二进制、监听地址和端口。域名、TLS�
 make build
 ```
 
+本地构建的 `/health` 版本默认为 `dev`。发布时可以注入完整 Git commit SHA：
+
+```bash
+make build VERSION="$(git rev-parse HEAD)"
+```
+
 创建远端目录并上传：
 
 ```bash
@@ -42,6 +48,12 @@ curl http://<VPS_IP>:8000/health
 
 ```bash
 make rust-build-linux
+```
+
+发布时使用同一个 `VERSION` 参数注入完整 Git commit SHA：
+
+```bash
+make rust-build-linux VERSION="$(git rev-parse HEAD)"
 ```
 
 产物位于：
@@ -102,3 +114,9 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 ```
 
 预期：`/health` 为 `200`；无凭据 API 请求通常为 `401` 或 `403`；未登记路径为 `404`。
+
+`/health` 同时返回 `runtime` 和构建阶段注入的 `version`，例如：
+
+```json
+{"status":"ok","runtime":"go","version":"<完整 Git commit SHA>","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
+```

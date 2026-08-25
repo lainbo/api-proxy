@@ -22,6 +22,10 @@ use tower_service::Service as TowerService;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type ReqBody = BoxBody<Bytes, BoxError>;
+const VERSION: &str = match option_env!("API_PROXY_VERSION") {
+    Some(version) => version,
+    None => "dev",
+};
 
 // ── 配置 ──────────────────────────────────────────────────
 
@@ -519,7 +523,8 @@ impl RequestMeta {
 async fn health_response(state: &AppState) -> Response<ReqBody> {
     let uptime = state.start.elapsed().as_secs();
     let body = format!(
-        "{{\"status\":\"ok\",\"uptime\":{uptime},\"timestamp\":\"{}\"}}",
+        "{{\"status\":\"ok\",\"runtime\":\"rust\",\"version\":\"{}\",\"uptime\":{uptime},\"timestamp\":\"{}\"}}",
+        json_escape(VERSION),
         now_iso()
     );
     simple_response(StatusCode::OK, "application/json", &body)
@@ -1116,7 +1121,10 @@ mod tests {
         );
         let body = BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
         let text = String::from_utf8(body.to_vec()).unwrap();
-        assert!(text.starts_with("{\"status\":\"ok\",\"uptime\":"));
+        assert!(text.starts_with(&format!(
+            "{{\"status\":\"ok\",\"runtime\":\"rust\",\"version\":\"{}\",\"uptime\":"),
+            json_escape(VERSION)
+        )));
         assert!(text.ends_with("}"));
     }
 

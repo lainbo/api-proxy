@@ -21,7 +21,10 @@ import (
 
 // ── 配置 ──────────────────────────────────────────────────
 
-var responseHeaderTimeout = time.Duration(envInt("PROXY_TIMEOUT_MS", 300000)) * time.Millisecond
+var (
+	responseHeaderTimeout = time.Duration(envInt("PROXY_TIMEOUT_MS", 300000)) * time.Millisecond
+	version               = "dev"
+)
 
 func envInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
@@ -282,12 +285,22 @@ func writeSimpleResponse(w http.ResponseWriter, status int, contentType, body st
 
 // ── 请求处理 ─────────────────────────────────────────────
 
+type healthResponse struct {
+	Status    string `json:"status"`
+	Runtime   string `json:"runtime"`
+	Version   string `json:"version"`
+	Uptime    int    `json:"uptime"`
+	Timestamp string `json:"timestamp"`
+}
+
 func handler(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/health" {
-		body, _ := json.Marshal(map[string]any{
-			"status":    "ok",
-			"uptime":    int(time.Since(startTime).Seconds()),
-			"timestamp": nowISO(),
+		body, _ := json.Marshal(healthResponse{
+			Status:    "ok",
+			Runtime:   "go",
+			Version:   version,
+			Uptime:    int(time.Since(startTime).Seconds()),
+			Timestamp: nowISO(),
 		})
 		writeSimpleResponse(w, http.StatusOK, "application/json", string(body))
 		return

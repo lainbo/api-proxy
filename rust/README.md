@@ -26,6 +26,11 @@ cargo build --release --target x86_64-unknown-linux-musl
 ```
 
 也可以在仓库根目录用 `make rust-test` / `make rust-build` / `make rust-run`。
+本地构建的版本为 `dev`；发布时通过根目录命令传入完整 Git commit SHA：
+
+```bash
+make rust-build-linux VERSION="$(git rev-parse HEAD)"
+```
 
 ## 环境变量(与 Go 版一致)
 
@@ -49,7 +54,7 @@ cargo build --release --target x86_64-unknown-linux-musl
   Referer、CF/Fastly/GCP/Azure 的真实 IP 头等)
 - hop-by-hop 清理含 `Connection` 点名的头;Upgrade 特例保留
 - 响应侧只做 hop-by-hop 清理,不注入额外响应头
-- `/health` 返回 `{"status":"ok","uptime":N,"timestamp":"..."}`
+- `/health` 返回 `{"status":"ok","runtime":"rust","version":"...","uptime":N,"timestamp":"..."}`
 - JSON 结构化日志:ts / level / msg / path / upstream / error / durationMs
 - 上游拿不到响应时回空 body 的 502/504;优雅关闭(SIGINT/SIGTERM,30s)
 - HTTP/2 上游(ALPN)、连接池(idle 90s、每 host 上限 10)、

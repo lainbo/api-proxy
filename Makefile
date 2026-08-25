@@ -1,5 +1,6 @@
 BINARY = api-proxy
-GOFLAGS = -trimpath -ldflags="-s -w"
+VERSION ?= dev
+GOFLAGS = -trimpath -ldflags="-s -w -X main.version=$(VERSION)"
 
 .PHONY: test build build-arm run clean rust-test rust-build rust-build-linux rust-run
 
@@ -17,20 +18,20 @@ run:
 	go run .
 
 rust-test:
-	cd rust && cargo test
+	cd rust && API_PROXY_VERSION="$(VERSION)" cargo test
 
 rust-build:
-	cd rust && cargo build --release
+	cd rust && API_PROXY_VERSION="$(VERSION)" cargo build --release
 
 rust-build-linux:
-	docker run --platform linux/amd64 --rm -v "$(CURDIR)/rust:/io" -w /io rust:bookworm sh -c \
+	docker run --platform linux/amd64 --rm -e API_PROXY_VERSION="$(VERSION)" -v "$(CURDIR)/rust:/io" -w /io rust:bookworm sh -c \
 		'cargo test --locked && \
 		apt-get update -qq && apt-get install -y -qq musl-tools >/dev/null && \
 		rustup target add x86_64-unknown-linux-musl && \
 		cargo build --release --locked --target x86_64-unknown-linux-musl'
 
 rust-run:
-	cd rust && cargo run
+	cd rust && API_PROXY_VERSION="$(VERSION)" cargo run
 
 clean:
 	rm -f $(BINARY) $(BINARY)-arm64
