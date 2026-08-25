@@ -1,0 +1,17 @@
+[Unit]
+Description=API Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/api-proxy
+Environment=BIND_HOST=0.0.0.0
+Environment=PORT=8000
+ExecStart=/opt/api-proxy/api-proxy
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

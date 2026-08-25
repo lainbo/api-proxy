@@ -1,0 +1,7 @@
+table inet api_proxy_landing {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        ip saddr <FRONT_IP> tcp dport 8443 accept
+        tcp dport 8443 drop
+    }
+}

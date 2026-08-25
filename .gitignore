@@ -1,0 +1,11 @@
+.ace-tool/
+.claude/
+.playwright-mcp/
+.DS_Store
+api-proxy
+api-proxy-arm64
+rust/target/
+__pycache__/
+
+# 个人基础设施、运维脚本与生成文件
+ops/local/
