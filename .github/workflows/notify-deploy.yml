@@ -1,0 +1,33 @@
+name: 通知部署
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.repository == 'lainbo/api-proxy'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: 通知私有部署工作流
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          DEPLOY_REPOSITORY: ${{ secrets.DEPLOY_REPOSITORY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" || -z "$DEPLOY_REPOSITORY" ]]; then
+            echo "缺少 DEPLOY_DISPATCH_TOKEN 或 DEPLOY_REPOSITORY" >&2
+            exit 1
+          fi
+
+          printf '{"ref":"main","inputs":{"force":false}}' | gh api \
+            --method POST \
+            "repos/$DEPLOY_REPOSITORY/actions/workflows/deploy.yml/dispatches" \
+            --input -
