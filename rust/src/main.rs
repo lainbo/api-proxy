@@ -1122,7 +1122,7 @@ mod tests {
         let body = BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(text.starts_with(&format!(
-            "{{\"status\":\"ok\",\"runtime\":\"rust\",\"version\":\"{}\",\"uptime\":"),
+            "{{\"status\":\"ok\",\"runtime\":\"rust\",\"version\":\"{}\",\"uptime\":",
             json_escape(VERSION)
         )));
         assert!(text.ends_with("}"));
