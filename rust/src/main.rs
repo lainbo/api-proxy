@@ -126,6 +126,10 @@ const PATH_MAPPINGS: &[Route] = &[
         target: "https://openrouter.ai/api",
     },
     Route {
+        prefix: "/perplexity",
+        target: "https://api.perplexity.ai",
+    },
+    Route {
         prefix: "/xai",
         target: "https://api.x.ai",
     },

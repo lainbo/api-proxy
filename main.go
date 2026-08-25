@@ -79,6 +79,7 @@ var pathMappings = [][2]string{
 	{"/gemini", "https://generativelanguage.googleapis.com"},
 	{"/openai", "https://api.openai.com"},
 	{"/openrouter", "https://openrouter.ai/api"},
+	{"/perplexity", "https://api.perplexity.ai"},
 	{"/xai", "https://api.x.ai"},
 	{"/telegram", "https://api.telegram.org"},
 	{"/discord", "https://discord.com/api"},
