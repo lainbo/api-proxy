@@ -82,6 +82,52 @@ where
     }
 }
 
+/// 包装请求体：完整写完（EOS）或被传输层释放时通知一次。
+/// 对应 Go ResponseHeaderTimeout 的计时起点 —— 请求写完才开始等响应头。
+struct NotifyOnEnd {
+    inner: ReqBody,
+    done: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl NotifyOnEnd {
+    fn notify(&mut self) {
+        if let Some(tx) = self.done.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+impl Body for NotifyOnEnd {
+    type Data = Bytes;
+    type Error = BoxError;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<Frame<Bytes>, BoxError>>> {
+        let this = self.get_mut();
+        let res = Pin::new(&mut this.inner).poll_frame(cx);
+        if matches!(res, std::task::Poll::Ready(None)) {
+            this.notify();
+        }
+        res
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+impl Drop for NotifyOnEnd {
+    fn drop(&mut self) {
+        self.notify();
+    }
+}
+
 fn build_client() -> Client<hyper_rustls::HttpsConnector<HttpConnector>, ReqBody> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -566,7 +612,12 @@ where
 
     let method = req.method().clone();
     let mut headers = forward_request_headers(req.headers());
-    let body = req.into_body().map_err(Into::into).boxed();
+    let (body_done_tx, body_done_rx) = tokio::sync::oneshot::channel();
+    let body = NotifyOnEnd {
+        inner: req.into_body().map_err(Into::into).boxed(),
+        done: Some(body_done_tx),
+    }
+    .boxed();
 
     headers.insert(HOST, target_authority);
     let mut upstream_req_builder = Request::builder().method(method).uri(upstream_uri);
@@ -577,9 +628,18 @@ where
         .body(body)
         .expect("valid upstream request");
 
-    // PROXY_TIMEOUT_MS 只约束等待上游响应头
-    match tokio::time::timeout(state.header_timeout, state.transport.send(upstream_req)).await {
-        Err(_elapsed) => {
+    // PROXY_TIMEOUT_MS 只约束等待上游响应头；与 Go ResponseHeaderTimeout
+    // 一致，请求体写完后才开始计时，不限制慢速上传
+    let header_deadline = async {
+        let _ = body_done_rx.await;
+        tokio::time::sleep(state.header_timeout).await;
+    };
+    let send_result = tokio::select! {
+        res = state.transport.send(upstream_req) => Some(res),
+        _ = header_deadline => None,
+    };
+    match send_result {
+        None => {
             log_json(
                 "error",
                 "Upstream request timed out",
@@ -587,11 +647,11 @@ where
             );
             simple_response(StatusCode::GATEWAY_TIMEOUT, "", "")
         }
-        Ok(Err(e)) => {
+        Some(Err(e)) => {
             log_json("error", "Bad Gateway", &meta.log_fields(&e.to_string()));
             simple_response(StatusCode::BAD_GATEWAY, "", "")
         }
-        Ok(Ok(upstream_res)) => {
+        Some(Ok(upstream_res)) => {
             let mut builder = Response::builder().status(upstream_res.status());
             *builder
                 .headers_mut()
