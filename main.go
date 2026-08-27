@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 var (
 	responseHeaderTimeout = time.Duration(envInt("PROXY_TIMEOUT_MS", 300000)) * time.Millisecond
 	version               = "dev"
+	quiet                 = os.Getenv("PROXY_QUIET") == "1"
 )
 
 func envInt(key string, fallback int) int {
@@ -111,10 +113,14 @@ func init() {
 }
 
 func newReverseProxy(prefix string, target *url.URL) *httputil.ReverseProxy {
+	logDest := io.Writer(os.Stderr)
+	if quiet {
+		logDest = io.Discard
+	}
 	return &httputil.ReverseProxy{
 		Transport:  proxyTransport,
 		BufferPool: responseBuffers,
-		ErrorLog:   log.New(os.Stderr, "", 0),
+		ErrorLog:   log.New(logDest, "", 0),
 		Rewrite: func(proxyReq *httputil.ProxyRequest) {
 			rewriteURL(proxyReq.Out.URL, proxyReq.In.URL, prefix, target)
 			proxyReq.Out.Host = target.Host
@@ -226,6 +232,9 @@ func nowISO() string {
 }
 
 func logJSON(level, msg string, extra map[string]any) {
+	if quiet {
+		return
+	}
 	entry := make(map[string]any, 3+len(extra))
 	entry["ts"] = nowISO()
 	entry["level"] = level
@@ -333,6 +342,8 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// Shutdown 一被调用 ListenAndServe 就会立即返回，必须等它排空在途请求
+	shutdownDone := make(chan struct{})
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -340,13 +351,17 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
+		close(shutdownDone)
 	}()
 
-	fmt.Printf("Listening on %s\n", addr)
+	if !quiet {
+		fmt.Printf("Listening on %s\n", addr)
+	}
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
 	}
+	<-shutdownDone
 }
 
 func listenAddr() string {
