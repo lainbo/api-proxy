@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::body::{Body, Frame, Incoming};
-use hyper::header::{HeaderValue, HOST};
+use hyper::header::HeaderValue;
 use hyper::service::service_fn;
 use hyper::{HeaderMap, Request, Response, StatusCode, Uri};
 use hyper_util::client::legacy::{
@@ -224,7 +224,6 @@ const PATH_MAPPINGS: &[Route] = &[
 struct ParsedTarget {
     scheme: &'static str,
     authority: String,
-    authority_value: HeaderValue,
     /// 静态 base path（转义形式），可能为空
     base_path: String,
     query: Option<String>,
@@ -237,14 +236,11 @@ fn parse_target(target: &str, prefix: &str) -> ParsedTarget {
         panic!("invalid URL for {prefix}: {target:?}");
     }
     let authority = uri.authority().unwrap().as_str().to_string();
-    let authority_value =
-        HeaderValue::from_str(&authority).expect("target authority must be a valid header value");
     let base_path = uri.path().to_string();
     let query = uri.query().map(str::to_string);
     ParsedTarget {
         scheme: "https",
         authority,
-        authority_value,
         base_path,
         query,
     }
@@ -608,10 +604,9 @@ where
             return simple_response(StatusCode::BAD_GATEWAY, "", "");
         }
     };
-    let target_authority = state.routes[route_index].1.authority_value.clone();
 
     let method = req.method().clone();
-    let mut headers = forward_request_headers(req.headers());
+    let headers = forward_request_headers(req.headers());
     let (body_done_tx, body_done_rx) = tokio::sync::oneshot::channel();
     let body = NotifyOnEnd {
         inner: req.into_body().map_err(Into::into).boxed(),
@@ -619,7 +614,6 @@ where
     }
     .boxed();
 
-    headers.insert(HOST, target_authority);
     let mut upstream_req_builder = Request::builder().method(method).uri(upstream_uri);
     *upstream_req_builder
         .headers_mut()
@@ -825,7 +819,7 @@ mod tests {
         method: Option<String>,
         path: Option<String>,
         query: Option<String>,
-        host_header: Option<String>,
+        authority: Option<String>,
         headers: Vec<(String, String)>,
     }
 
@@ -850,11 +844,10 @@ mod tests {
                 c.method = Some(req.method().to_string());
                 c.path = Some(req.uri().path().to_string());
                 c.query = Some(req.uri().query().unwrap_or("").to_string());
-                c.host_header = req
-                    .headers()
-                    .get(HOST)
-                    .and_then(|v| v.to_str().ok())
-                    .map(String::from);
+                c.authority = req
+                    .uri()
+                    .authority()
+                    .map(|value| value.as_str().to_string());
                 c.headers = req
                     .headers()
                     .iter()
@@ -949,7 +942,8 @@ mod tests {
         assert_eq!(&body[..], b"ok");
 
         let c = captured.lock().unwrap();
-        assert_eq!(c.host_header.as_deref(), Some("api.openai.com"));
+        assert_eq!(c.authority.as_deref(), Some("api.openai.com"));
+        assert_eq!(c.header("host"), None);
         assert_eq!(c.path.as_deref(), Some("/files/a%2Fb%25c"));
         assert_eq!(c.query.as_deref(), Some("download=1"));
         assert_eq!(c.header("Authorization"), Some("Bearer test"));
@@ -999,7 +993,7 @@ mod tests {
 
             let c = captured.lock().unwrap();
             assert_eq!(
-                c.host_header.as_deref(),
+                c.authority.as_deref(),
                 Some(case.want_host),
                 "{}",
                 case.request_path
