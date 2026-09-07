@@ -65,6 +65,7 @@ make rust-build-linux VERSION="$(git rev-parse HEAD)"
 | 差异点 | Go 版 | Rust 版 |
 |---|---|---|
 | 连接超时错误码 | dial/TLS 超时归为 504 | 统一 502(仅响应头等待超时是 504) |
+| 建连时限 | TCP 30s、TLS 握手 10s | TCP 30s，DNS/TCP/TLS 整体最多 40s |
 | 全局空闲连接上限 | MaxIdleConns=100 | 无全局上限,每 host ≤10 |
 | 客户端断连日志 | context 取消即记 | 无（无法与正常完成区分，不做检测） |
 | 101 Upgrade 隧道 | 支持协议切换透传 | 不支持(AI API 场景用不到) |

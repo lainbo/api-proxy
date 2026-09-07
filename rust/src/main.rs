@@ -128,7 +128,31 @@ impl Drop for NotifyOnEnd {
     }
 }
 
-fn build_client() -> Client<hyper_rustls::HttpsConnector<HttpConnector>, ReqBody> {
+#[derive(Clone)]
+struct TimeoutConnector(hyper_rustls::HttpsConnector<HttpConnector>);
+
+impl TowerService<Uri> for TimeoutConnector {
+    type Response = <hyper_rustls::HttpsConnector<HttpConnector> as TowerService<Uri>>::Response;
+    type Error = BoxError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.0.poll_ready(cx)
+    }
+
+    fn call(&mut self, uri: Uri) -> Self::Future {
+        let connecting = self.0.call(uri);
+        Box::pin(async move {
+            // DNS、TCP 和 TLS 共用 40 秒上限，计时不覆盖请求体上传。
+            tokio::time::timeout(Duration::from_secs(40), connecting).await?
+        })
+    }
+}
+
+fn build_client() -> Client<TimeoutConnector, ReqBody> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let mut http = HttpConnector::new();
@@ -144,9 +168,10 @@ fn build_client() -> Client<hyper_rustls::HttpsConnector<HttpConnector>, ReqBody
         .wrap_connector(http);
 
     Client::builder(TokioExecutor::new())
+        .pool_timer(TokioTimer::new())
         .pool_idle_timeout(Duration::from_secs(90)) // IdleConnTimeout
         .pool_max_idle_per_host(10) // MaxIdleConnsPerHost
-        .build(https)
+        .build(TimeoutConnector(https))
 }
 
 // ── 路由 ──────────────────────────────────────────────────
@@ -785,6 +810,7 @@ async fn main() {
                     }
                 }
             }
+            _ = tasks.join_next(), if !tasks.is_empty() => {}
             _ = rx.changed() => break,
         }
     }
