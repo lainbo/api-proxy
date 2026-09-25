@@ -83,6 +83,8 @@ var pathMappings = [][2]string{
 	{"/anthropic", "https://api.anthropic.com"},
 	{"/gemini", "https://generativelanguage.googleapis.com"},
 	{"/openai", "https://api.openai.com"},
+	{"/openai-auth", "https://auth.openai.com"},
+	{"/chatgpt", "https://chatgpt.com/backend-api"},
 	{"/openrouter", "https://openrouter.ai/api"},
 	{"/perplexity", "https://api.perplexity.ai"},
 	{"/xai", "https://api.x.ai"},

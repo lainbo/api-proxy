@@ -197,6 +197,14 @@ const PATH_MAPPINGS: &[Route] = &[
         target: "https://api.openai.com",
     },
     Route {
+        prefix: "/openai-auth",
+        target: "https://auth.openai.com",
+    },
+    Route {
+        prefix: "/chatgpt",
+        target: "https://chatgpt.com/backend-api",
+    },
+    Route {
         prefix: "/openrouter",
         target: "https://openrouter.ai/api",
     },
