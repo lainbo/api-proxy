@@ -45,7 +45,7 @@ make rust-build-linux VERSION="$(git rev-parse HEAD)"
 
 已对齐的核心行为:
 
-- 路由表与 Go `pathMappings` 完全一致;只匹配完整前缀段,
+- 路由表与 Go `pathMappings` 一致(Bitwarden 路由除外);只匹配完整前缀段,
   `/openai@attacker.example/...` 直接 404
 - 转义路径逐字节保留(`%2F`、`%25` 等)
 - base path 去重拼接(`/openrouter/api/v1/x` → `/api/v1/x`,
@@ -70,6 +70,7 @@ make rust-build-linux VERSION="$(git rev-parse HEAD)"
 | 客户端断连日志 | context 取消即记 | 无（无法与正常完成区分，不做检测） |
 | 101 Upgrade 隧道 | 支持协议切换透传 | 不支持(AI API 场景用不到) |
 | Expect: 100-continue | 显式超时配置 | 由 hyper 自动处理 |
+| Bitwarden 路由 | `/bitwarden/*`,并保留 `Origin` | 未提供 |
 
 ## 测试方式
 

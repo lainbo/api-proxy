@@ -11,6 +11,15 @@
 
 当前包含 OpenAI、Anthropic、Gemini、OpenRouter、xAI、Telegram、Discord、Groq、Cohere、Hugging Face、Together、Novita、Portkey 和 Fireworks 等路径前缀。请求凭据只随请求转发，不写入项目配置。
 
+### Bitwarden
+
+Go 版通过 `/bitwarden/` 转发 Bitwarden 美国区官方云（`bitwarden.com`）的 API、身份验证、通知、图标和事件服务，账号、密码库和会员仍由官方服务承载。客户端登录页选择“自托管”后填写：
+
+- 服务器 URL：`https://<代理域名>/bitwarden`
+- 自定义环境中的网页密码库服务器 URL：`https://vault.bitwarden.com`
+
+网页密码库保持直连官方，WebAuthn、Duo 两步验证和 Send 链接依赖它。这组路由原样转发 `Origin`，桌面端和 Safari 扩展需要它通过官方服务端的 CORS 预检；实时同步使用 WebSocket。Rust 版暂未提供这组路由。
+
 ## 本地运行
 
 ```bash

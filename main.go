@@ -97,6 +97,16 @@ var pathMappings = [][2]string{
 	{"/novita", "https://api.novita.ai"},
 	{"/portkey", "https://api.portkey.ai"},
 	{"/fireworks", "https://api.fireworks.ai/inference"},
+	{"/bitwarden/api", "https://api.bitwarden.com"},
+	{"/bitwarden/identity", "https://identity.bitwarden.com"},
+	{"/bitwarden/notifications", "https://notifications.bitwarden.com"},
+	{"/bitwarden/icons", "https://icons.bitwarden.net"},
+	{"/bitwarden/events", "https://events.bitwarden.com"},
+}
+
+// Bitwarden 桌面端和 Safari 扩展的请求需要通过官方服务端按 Origin 做的 CORS 预检
+func keepsOrigin(prefix string) bool {
+	return strings.HasPrefix(prefix, "/bitwarden/")
 }
 
 var routes []route
@@ -119,6 +129,7 @@ func newReverseProxy(prefix string, target *url.URL) *httputil.ReverseProxy {
 	if quiet {
 		logDest = io.Discard
 	}
+	keepOrigin := keepsOrigin(prefix)
 	return &httputil.ReverseProxy{
 		Transport:  proxyTransport,
 		BufferPool: responseBuffers,
@@ -126,7 +137,7 @@ func newReverseProxy(prefix string, target *url.URL) *httputil.ReverseProxy {
 		Rewrite: func(proxyReq *httputil.ProxyRequest) {
 			rewriteURL(proxyReq.Out.URL, proxyReq.In.URL, prefix, target)
 			proxyReq.Out.Host = target.Host
-			stripPrivacyHeaders(proxyReq.Out.Header)
+			stripPrivacyHeaders(proxyReq.Out.Header, keepOrigin)
 		},
 		ErrorHandler: proxyErrorHandler,
 	}
@@ -211,8 +222,11 @@ var requestHeadersToStrip = []string{
 	"Origin", "Referer",
 }
 
-func stripPrivacyHeaders(headers http.Header) {
+func stripPrivacyHeaders(headers http.Header, keepOrigin bool) {
 	for _, name := range requestHeadersToStrip {
+		if keepOrigin && name == "Origin" {
+			continue
+		}
 		headers.Del(name)
 	}
 }
