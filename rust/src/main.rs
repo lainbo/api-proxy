@@ -65,6 +65,7 @@ trait UpstreamTransport: Send + Sync + 'static {
 /// hyper legacy client：连接池、ALPN HTTP/2、系统 CA
 struct HyperTransport<C> {
     client: Client<C, ReqBody>,
+    upgrade_client: Client<C, ReqBody>,
 }
 
 impl<C> UpstreamTransport for HyperTransport<C>
@@ -74,7 +75,13 @@ where
     C::Future: Unpin + Send,
 {
     fn send(&self, req: Request<ReqBody>) -> TransportFut {
-        let fut = self.client.request(req);
+        // HTTP/1.1 Upgrade 不能复用已通过 ALPN 协商为 HTTP/2 的连接。
+        let client = if upgrade_type(req.headers()).is_some() {
+            &self.upgrade_client
+        } else {
+            &self.client
+        };
+        let fut = client.request(req);
         Box::pin(async move {
             let res: Response<Incoming> = fut.await?;
             Ok(res.map(|body| body.map_err(Into::into).boxed()))
@@ -152,7 +159,7 @@ impl TowerService<Uri> for TimeoutConnector {
     }
 }
 
-fn build_client() -> Client<TimeoutConnector, ReqBody> {
+fn build_client(http1_only: bool) -> Client<TimeoutConnector, ReqBody> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let mut http = HttpConnector::new();
@@ -163,9 +170,12 @@ fn build_client() -> Client<TimeoutConnector, ReqBody> {
     let https = hyper_rustls::HttpsConnectorBuilder::new()
         .with_native_roots()
         .expect("failed to load system root certificates")
-        .https_or_http()
-        .enable_all_versions() // HTTP/1.1 + HTTP/2 (ALPN)，对应 ForceAttemptHTTP2
-        .wrap_connector(http);
+        .https_or_http();
+    let https = if http1_only {
+        https.enable_http1().wrap_connector(http)
+    } else {
+        https.enable_all_versions().wrap_connector(http)
+    };
 
     Client::builder(TokioExecutor::new())
         .pool_timer(TokioTimer::new())
@@ -252,6 +262,26 @@ const PATH_MAPPINGS: &[Route] = &[
         prefix: "/fireworks",
         target: "https://api.fireworks.ai/inference",
     },
+    Route {
+        prefix: "/bitwarden/api",
+        target: "https://api.bitwarden.com",
+    },
+    Route {
+        prefix: "/bitwarden/identity",
+        target: "https://identity.bitwarden.com",
+    },
+    Route {
+        prefix: "/bitwarden/notifications",
+        target: "https://notifications.bitwarden.com",
+    },
+    Route {
+        prefix: "/bitwarden/icons",
+        target: "https://icons.bitwarden.net",
+    },
+    Route {
+        prefix: "/bitwarden/events",
+        target: "https://events.bitwarden.com",
+    },
 ];
 
 struct ParsedTarget {
@@ -292,7 +322,8 @@ impl AppState {
     fn new() -> Arc<Self> {
         Self::with_transport(
             Arc::new(HyperTransport {
-                client: build_client(),
+                client: build_client(false),
+                upgrade_client: build_client(true),
             }),
             response_header_timeout(),
         )
@@ -427,13 +458,16 @@ fn upgrade_type(headers: &HeaderMap) -> Option<HeaderValue> {
     if !wants_upgrade {
         return None;
     }
-    headers.get(hyper::header::UPGRADE).cloned()
+    headers
+        .get(hyper::header::UPGRADE)
+        .filter(|value| !value.is_empty())
+        .cloned()
 }
 
 /// 请求侧头部清洗：去 hop-by-hop（含 Connection 点名的头）、隐私头；
 /// host/content-length 由传输层按新 URI / 实际 body 重算。
 /// Upgrade 特例与 Go 一致：Connection 含 upgrade 时保留 `Connection: Upgrade` + `Upgrade`。
-fn forward_request_headers(src: &HeaderMap) -> HeaderMap {
+fn forward_request_headers(src: &HeaderMap, keep_origin: bool) -> HeaderMap {
     let nominated = connection_tokens(src);
     let upgrade = upgrade_type(src);
 
@@ -443,7 +477,7 @@ fn forward_request_headers(src: &HeaderMap) -> HeaderMap {
         if n == "host"
             || n == "content-length"
             || HOP_BY_HOP_HEADERS.contains(&n)
-            || PRIVACY_HEADERS.contains(&n)
+            || (PRIVACY_HEADERS.contains(&n) && !(keep_origin && n == "origin"))
             || nominated.iter().any(|t| t == n)
         {
             continue;
@@ -605,7 +639,7 @@ async fn health_response(state: &AppState) -> Response<ReqBody> {
     simple_response(StatusCode::OK, "application/json", &body)
 }
 
-async fn handle<B>(state: Arc<AppState>, req: Request<B>) -> Response<ReqBody>
+async fn handle<B>(state: Arc<AppState>, mut req: Request<B>) -> Response<ReqBody>
 where
     B: Body<Data = Bytes> + Send + Sync + 'static,
     B::Error: Into<BoxError>,
@@ -638,8 +672,24 @@ where
         }
     };
 
+    let requested_upgrade = upgrade_type(req.headers());
+    if requested_upgrade
+        .as_ref()
+        .is_some_and(|value| !value.as_bytes().iter().all(|byte| (32..127).contains(byte)))
+    {
+        log_json(
+            "error",
+            "Bad Gateway",
+            &meta.log_fields("invalid upgrade protocol"),
+        );
+        return simple_response(StatusCode::BAD_GATEWAY, "", "");
+    }
+    let downstream_upgrade = requested_upgrade
+        .as_ref()
+        .map(|_| hyper::upgrade::on(&mut req));
     let method = req.method().clone();
-    let headers = forward_request_headers(req.headers());
+    let keep_origin = state.routes[route_index].0.starts_with("/bitwarden/");
+    let headers = forward_request_headers(req.headers(), keep_origin);
     let (body_done_tx, body_done_rx) = tokio::sync::oneshot::channel();
     let body = NotifyOnEnd {
         inner: req.into_body().map_err(Into::into).boxed(),
@@ -678,7 +728,53 @@ where
             log_json("error", "Bad Gateway", &meta.log_fields(&e.to_string()));
             simple_response(StatusCode::BAD_GATEWAY, "", "")
         }
-        Some(Ok(upstream_res)) => {
+        Some(Ok(mut upstream_res)) => {
+            if upstream_res.status() == StatusCode::SWITCHING_PROTOCOLS {
+                let response_upgrade = upgrade_type(upstream_res.headers());
+                let matching_protocol = requested_upgrade
+                    .as_ref()
+                    .zip(response_upgrade.as_ref())
+                    .is_some_and(|(requested, received)| {
+                        requested
+                            .as_bytes()
+                            .eq_ignore_ascii_case(received.as_bytes())
+                    });
+                if !matching_protocol {
+                    log_json(
+                        "error",
+                        "Bad Gateway",
+                        &meta.log_fields("upstream upgrade protocol mismatch"),
+                    );
+                    return simple_response(StatusCode::BAD_GATEWAY, "", "");
+                }
+                let upstream = match hyper::upgrade::on(&mut upstream_res).await {
+                    Ok(upstream) => upstream,
+                    Err(e) => {
+                        log_json("error", "Bad Gateway", &meta.log_fields(&e.to_string()));
+                        return simple_response(StatusCode::BAD_GATEWAY, "", "");
+                    }
+                };
+                let mut response = simple_response(StatusCode::SWITCHING_PROTOCOLS, "", "");
+                *response.headers_mut() = filter_response_headers(upstream_res.headers());
+                response.headers_mut().insert(
+                    hyper::header::CONNECTION,
+                    HeaderValue::from_static("Upgrade"),
+                );
+                response
+                    .headers_mut()
+                    .insert(hyper::header::UPGRADE, response_upgrade.unwrap());
+                let downstream = downstream_upgrade.expect("validated upgrade request");
+                tokio::spawn(async move {
+                    if let Ok(downstream) = downstream.await {
+                        let _ = tokio::io::copy_bidirectional(
+                            &mut TokioIo::new(downstream),
+                            &mut TokioIo::new(upstream),
+                        )
+                        .await;
+                    }
+                });
+                return response;
+            }
             let mut builder = Response::builder().status(upstream_res.status());
             *builder
                 .headers_mut()
@@ -767,7 +863,8 @@ async fn serve_connection(
         // header_read_timeout 依赖 timer，未设置时连接一建立就 panic
         .timer(TokioTimer::new())
         .header_read_timeout(Duration::from_secs(10)) // 对应 Go ReadHeaderTimeout
-        .serve_connection(TokioIo::new(io), service);
+        .serve_connection(TokioIo::new(io), service)
+        .with_upgrades();
     tokio::pin!(conn);
 
     tokio::select! {
@@ -831,6 +928,9 @@ async fn main() {
 }
 
 // ── 测试 ─────────────────────────────────────────────────
+
+#[cfg(test)]
+mod e2e;
 
 #[cfg(test)]
 mod tests {
@@ -1113,7 +1213,7 @@ mod tests {
             HeaderValue::from_static("Bearer k"),
         );
 
-        let out = forward_request_headers(&headers);
+        let out = forward_request_headers(&headers, false);
         assert_eq!(
             out.get(hyper::header::CONNECTION)
                 .map(|v| v.to_str().unwrap()),
@@ -1164,7 +1264,7 @@ mod tests {
             HeaderValue::from_static("keep"),
         );
 
-        let out = forward_request_headers(&headers);
+        let out = forward_request_headers(&headers, false);
         for name in go_list {
             assert!(out.get(name).is_none(), "privacy header {name} leaked");
         }

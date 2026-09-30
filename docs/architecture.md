@@ -61,6 +61,10 @@ Nginx、TLS、SNI、前置机、落地机、防火墙和进程守护都位于程
 
 `rust/src/main.rs` 使用 hyper 1 + rustls 实现同一语义。完整对照与已知差异见 [rust/README.md](../rust/README.md)。加路由或修改代理行为时，两侧实现必须同步检查。
 
+Bitwarden 路由保留 `Origin`。HTTP/1.1 升级请求使用独立的上游客户端，避免复用 HTTP/2 连接；
+校验上游 `101` 的协议后，由 hyper 交接连接并通过 Tokio 双向传输字节。响应头超时只覆盖握手，
+不限制升级后连接的持续时间。
+
 ## 运行时环境变量
 
 | 变量 | 默认值 | 说明 |

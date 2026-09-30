@@ -45,14 +45,16 @@ make rust-build-linux VERSION="$(git rev-parse HEAD)"
 
 已对齐的核心行为:
 
-- 路由表与 Go `pathMappings` 一致(Bitwarden 路由除外);只匹配完整前缀段,
+- 路由表与 Go `pathMappings` 一致;只匹配完整前缀段,
   `/openai@attacker.example/...` 直接 404
 - 转义路径逐字节保留(`%2F`、`%25` 等)
 - base path 去重拼接(`/openrouter/api/v1/x` → `/api/v1/x`,
   `/openrouter/apiv2/x` → `/api/apiv2/x`)
 - 请求侧剥离 17 个来源/隐私头(X-Forwarded-*、X-Real-Ip、Via、Origin、
-  Referer、CF/Fastly/GCP/Azure 的真实 IP 头等)
+  Referer、CF/Fastly/GCP/Azure 的真实 IP 头等);Bitwarden 路由保留 `Origin`
 - hop-by-hop 清理含 `Connection` 点名的头;Upgrade 特例保留
+- WebSocket 等 HTTP/1.1 协议升级由 hyper 完成，升级后的数据由 Tokio 双向透传；
+  升级请求使用独立的 HTTP/1.1 上游客户端，普通请求继续通过 ALPN 协商 HTTP/2
 - 响应侧只做 hop-by-hop 清理,不注入额外响应头
 - `/health` 返回 `{"status":"ok","runtime":"rust","version":"...","uptime":N,"timestamp":"..."}`
 - JSON 结构化日志:ts / level / msg / path / upstream / error / durationMs
@@ -67,16 +69,28 @@ make rust-build-linux VERSION="$(git rev-parse HEAD)"
 | 连接超时错误码 | dial/TLS 超时归为 504 | 统一 502(仅响应头等待超时是 504) |
 | 建连时限 | TCP 30s、TLS 握手 10s | TCP 30s，DNS/TCP/TLS 整体最多 40s |
 | 全局空闲连接上限 | MaxIdleConns=100 | 无全局上限,每 host ≤10 |
-| 客户端断连日志 | context 取消即记 | 无（无法与正常完成区分，不做检测） |
-| 101 Upgrade 隧道 | 支持协议切换透传 | 不支持(AI API 场景用不到) |
+| 普通 HTTP 请求断连日志 | context 取消即记 | 无（无法与正常完成区分，不做检测） |
+| 101 响应头 | 原样转发上游响应头 | 清理 hop-by-hop 头，再补回 `Connection: Upgrade` 和 `Upgrade` |
 | Expect: 100-continue | 显式超时配置 | 由 hyper 自动处理 |
-| Bitwarden 路由 | `/bitwarden/*`,并保留 `Origin` | 未提供 |
 
 ## 测试方式
 
-与 Go 版测试同构:`UpstreamTransport` trait 对应可替换的
+现有测试与 Go 版同构:`UpstreamTransport` trait 对应可替换的
 `http.RoundTripper`,测试注入假实现断言"上游收到的请求"和
 "客户端收到的响应",不依赖网络。
+
+Bitwarden 端到端验证通过真实本地连接覆盖客户端、代理和 TLS 上游，验证五条路由、
+CORS、请求体、HTTP/2 普通请求、HTTP/1.1 WebSocket、握手失败、数据帧、断连及流式响应。
+测试使用 OpenSSL 生成临时证书，证书只在测试进程中受信任，退出后删除：
+
+```bash
+cd rust
+bash tests/bitwarden-e2e.sh
+```
+
+结果保存在 `target/bitwarden-e2e.json`，执行日志和源码校验值分别保存在
+`target/bitwarden-e2e.log`、`target/bitwarden-e2e.sha256`。该验证使用本地测试上游；
+官方账号登录和多设备实时同步仍需使用实际客户端联调。
 
 ## 部署
 
