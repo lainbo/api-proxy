@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-API Proxy 按路径前缀把请求转发到不同 AI/API 上游。Go 与 Rust 两套实现保持相同的路由、头处理、超时和错误语义。
+API Proxy 使用 Go 标准库，按路径前缀把请求转发到不同 AI/API 上游。
 
 程序本身是一个普通 HTTP 服务：
 
@@ -17,7 +17,6 @@ Nginx、TLS、SNI、前置机、落地机、防火墙和进程守护都位于程
 ```text
 .
 ├── main.go                         # Go 实现
-├── rust/                           # Rust 实现
 ├── examples/
 │   ├── systemd/                    # 可选进程守护
 │   ├── nginx/                      # 共用路径白名单
@@ -56,14 +55,6 @@ Nginx、TLS、SNI、前置机、落地机、防火墙和进程守护都位于程
 - 剥离来源/隐私头，由标准库清理 hop-by-hop 头及 `Connection` 动态指定的头；`/bitwarden/` 路由保留 `Origin`，供官方服务端做 CORS 校验
 - `PROXY_TIMEOUT_MS` 只约束等待上游响应头，不截断已经开始的流式响应
 - 上游支持时使用 HTTP/2，不注入额外响应头
-
-## Rust 实现
-
-`rust/src/main.rs` 使用 hyper 1 + rustls 实现同一语义。完整对照与已知差异见 [rust/README.md](../rust/README.md)。加路由或修改代理行为时，两侧实现必须同步检查。
-
-Bitwarden 路由保留 `Origin`。HTTP/1.1 升级请求使用独立的上游客户端，避免复用 HTTP/2 连接；
-校验上游 `101` 的协议后，由 hyper 交接连接并通过 Tokio 双向传输字节。响应头超时只覆盖握手，
-不限制升级后连接的持续时间。
 
 ## 运行时环境变量
 

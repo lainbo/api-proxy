@@ -31,7 +31,7 @@ go vet ./...
 {"/新前缀", "https://目标API地址"},
 ```
 
-Go 的 `pathMappings` 与 Rust 的 `PATH_MAPPINGS`（`rust/src/main.rs`）必须同步修改。使用可选 Nginx 示例的维护者还要同步更新 `examples/nginx/api-proxy-locations.conf`。部署方式见 [deployment.md](./deployment.md)。
+使用可选 Nginx 示例的维护者还要同步更新 `examples/nginx/api-proxy-locations.conf`。部署方式见 [deployment.md](./deployment.md)。
 
 新增或修改路由时，至少覆盖以下情况：
 
@@ -45,5 +45,4 @@ Go 的 `pathMappings` 与 Rust 的 `PATH_MAPPINGS`（`rust/src/main.rs`）必须
 
 ```bash
 make test
-make rust-test
 ```

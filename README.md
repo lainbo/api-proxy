@@ -2,10 +2,7 @@
 
 一个保持“薄代理”语义的 AI/API 反向代理：按路径前缀选择上游，转发原始请求，并尽量不改变上游响应。
 
-项目提供语义对齐的两套实现：
-
-- Go：仅使用标准库，入口为 `main.go`
-- Rust：基于 hyper + rustls，位于 `rust/`
+项目使用 Go 标准库实现，入口为 `main.go`。
 
 ## 支持的上游
 
@@ -13,7 +10,7 @@
 
 ### Bitwarden
 
-Go 和 Rust 版通过 `/bitwarden/` 转发 Bitwarden 美国区官方云（`bitwarden.com`）的 API、身份验证、通知、图标和事件服务，账号、密码库和会员仍由官方服务承载。客户端登录页选择“自托管”后填写：
+通过 `/bitwarden/` 转发 Bitwarden 美国区官方云（`bitwarden.com`）的 API、身份验证、通知、图标和事件服务，账号、密码库和会员仍由官方服务承载。客户端登录页选择“自托管”后填写：
 
 - 服务器 URL：`https://<代理域名>/bitwarden`
 - 自定义环境中的网页密码库服务器 URL：`https://vault.bitwarden.com`
@@ -31,12 +28,6 @@ curl http://127.0.0.1:8000/health
 
 ```json
 {"status":"ok","runtime":"go","version":"dev","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
-```
-
-Rust 版：
-
-```bash
-make rust-run
 ```
 
 ## 部署到 VPS

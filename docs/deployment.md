@@ -42,28 +42,6 @@ BIND_HOST=0.0.0.0 PORT=8000 /opt/api-proxy/api-proxy
 curl http://<VPS_IP>:8000/health
 ```
 
-### Rust
-
-使用 Docker 构建 Linux amd64 musl 静态二进制：
-
-```bash
-make rust-build-linux
-```
-
-发布时使用同一个 `VERSION` 参数注入完整 Git commit SHA：
-
-```bash
-make rust-build-linux VERSION="$(git rev-parse HEAD)"
-```
-
-产物位于：
-
-```text
-rust/target/x86_64-unknown-linux-musl/release/api-proxy
-```
-
-上传和运行方式与 Go 版相同。
-
 ### 后台常驻
 
 程序不绑定特定进程管理器。可以使用 systemd、Supervisor、容器、面板或其他方式。仓库只提供一个可选的 [systemd 示例](../examples/systemd/)。
