@@ -24,10 +24,10 @@ make run
 curl http://127.0.0.1:8000/health
 ```
 
-健康检查会返回实现类型和构建版本；本地构建默认显示 `version: "dev"`：
+健康检查会返回构建版本；本地构建默认显示 `version: "dev"`：
 
 ```json
-{"status":"ok","runtime":"go","version":"dev","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
+{"status":"ok","version":"dev","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
 ```
 
 ## 部署到 VPS

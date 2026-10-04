@@ -93,8 +93,8 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 
 预期：`/health` 为 `200`；无凭据 API 请求通常为 `401` 或 `403`；未登记路径为 `404`。
 
-`/health` 同时返回 `runtime` 和构建阶段注入的 `version`，例如：
+`/health` 同时返回构建阶段注入的 `version`，例如：
 
 ```json
-{"status":"ok","runtime":"go","version":"<完整 Git commit SHA>","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
+{"status":"ok","version":"<完整 Git commit SHA>","uptime":12,"timestamp":"2026-08-25T12:00:00.000Z"}
 ```

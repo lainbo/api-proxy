@@ -75,7 +75,6 @@ var responseBuffers = &proxyBufferPool{}
 
 type route struct {
 	prefix string
-	target *url.URL
 	proxy  *httputil.ReverseProxy
 }
 
@@ -92,7 +91,7 @@ var pathMappings = [][2]string{
 	{"/discord", "https://discord.com/api"},
 	{"/groq", "https://api.groq.com/openai"},
 	{"/cohere", "https://api.cohere.ai"},
-	{"/huggingface", "https://api-inference.huggingface.co"},
+	{"/huggingface", "https://router.huggingface.co"},
 	{"/together", "https://api.together.xyz"},
 	{"/novita", "https://api.novita.ai"},
 	{"/portkey", "https://api.portkey.ai"},
@@ -113,14 +112,14 @@ var routes []route
 
 func init() {
 	for _, mapping := range pathMappings {
+		prefix := mapping[0]
 		target, err := url.Parse(mapping[1])
-		if err != nil || target.Scheme != "https" || target.Host == "" {
-			panic(fmt.Sprintf("invalid URL for %s: %q", mapping[0], mapping[1]))
+		// rewriteURL 直接拼接 base path 并原样使用入站查询参数，上游地址不能以 / 结尾或自带查询参数
+		if err != nil || target.Scheme != "https" || target.Host == "" ||
+			strings.HasSuffix(target.Path, "/") || target.RawQuery != "" {
+			panic(fmt.Sprintf("invalid URL for %s: %q", prefix, mapping[1]))
 		}
-
-		rt := route{prefix: mapping[0], target: target}
-		rt.proxy = newReverseProxy(rt.prefix, rt.target)
-		routes = append(routes, rt)
+		routes = append(routes, route{prefix: prefix, proxy: newReverseProxy(prefix, target)})
 	}
 }
 
@@ -145,8 +144,7 @@ func newReverseProxy(prefix string, target *url.URL) *httputil.ReverseProxy {
 
 func matchRoute(escapedPath string) *route {
 	for i := range routes {
-		prefix := routes[i].prefix
-		if escapedPath == prefix || strings.HasPrefix(escapedPath, prefix+"/") {
+		if hasPathPrefix(escapedPath, routes[i].prefix) {
 			return &routes[i]
 		}
 	}
@@ -156,20 +154,16 @@ func matchRoute(escapedPath string) *route {
 func rewriteURL(out, in *url.URL, prefix string, target *url.URL) {
 	suffixPath := in.Path[len(prefix):]
 	suffixEscapedPath := in.EscapedPath()[len(prefix):]
-	incomingQuery := out.RawQuery
 
-	targetPath := target.Path
-	targetEscapedPath := target.EscapedPath()
-	if targetPath == "" || hasPathPrefix(suffixPath, targetPath) {
-		targetPath = suffixPath
-		targetEscapedPath = suffixEscapedPath
-	} else {
-		targetPath = joinPath(targetPath, suffixPath)
-		targetEscapedPath = joinPath(targetEscapedPath, suffixEscapedPath)
+	// 客户端已带上游 base path 时不再重复追加；按转义路径判断，与路由匹配的路径段边界一致
+	basePath, baseEscapedPath := target.Path, target.EscapedPath()
+	if hasPathPrefix(suffixEscapedPath, baseEscapedPath) {
+		basePath, baseEscapedPath = "", ""
 	}
+	targetPath := basePath + suffixPath
+	targetEscapedPath := baseEscapedPath + suffixEscapedPath
 	if targetPath == "" {
-		targetPath = "/"
-		targetEscapedPath = "/"
+		targetPath, targetEscapedPath = "/", "/"
 	}
 
 	out.Scheme = target.Scheme
@@ -177,7 +171,8 @@ func rewriteURL(out, in *url.URL, prefix string, target *url.URL) {
 	out.User = nil
 	out.Path = targetPath
 	out.RawPath = rawPath(targetPath, targetEscapedPath)
-	out.RawQuery = joinQuery(target.RawQuery, incomingQuery)
+	// ReverseProxy 会在 Rewrite 前删除无法解析的参数并重新编码，这里恢复入站的原始查询字符串
+	out.RawQuery = in.RawQuery
 	out.Fragment = ""
 }
 
@@ -185,29 +180,11 @@ func hasPathPrefix(path, prefix string) bool {
 	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
-func joinPath(base, suffix string) string {
-	switch {
-	case strings.HasSuffix(base, "/") && strings.HasPrefix(suffix, "/"):
-		return base + suffix[1:]
-	case !strings.HasSuffix(base, "/") && suffix != "" && !strings.HasPrefix(suffix, "/"):
-		return base + "/" + suffix
-	default:
-		return base + suffix
-	}
-}
-
 func rawPath(path, escapedPath string) string {
 	if path == escapedPath {
 		return ""
 	}
 	return escapedPath
-}
-
-func joinQuery(base, query string) string {
-	if base == "" || query == "" {
-		return base + query
-	}
-	return base + "&" + query
 }
 
 // ── 头部处理 ─────────────────────────────────────────────
@@ -237,7 +214,6 @@ var startTime = time.Now()
 
 type requestMeta struct {
 	start time.Time
-	path  string
 	route string
 }
 
@@ -267,9 +243,6 @@ func logJSON(level, msg string, extra map[string]any) {
 }
 
 func classifyError(err error) (status int, msg string) {
-	if errors.Is(err, context.DeadlineExceeded) {
-		return http.StatusGatewayTimeout, "Upstream request timed out"
-	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return http.StatusGatewayTimeout, "Upstream request timed out"
@@ -291,7 +264,6 @@ func proxyErrorHandler(w http.ResponseWriter, req *http.Request, err error) {
 
 func errorLogFields(meta requestMeta, err error) map[string]any {
 	return map[string]any{
-		"path":       meta.path,
 		"upstream":   meta.route,
 		"error":      err.Error(),
 		"durationMs": time.Since(meta.start).Milliseconds(),
@@ -312,7 +284,6 @@ func writeSimpleResponse(w http.ResponseWriter, status int, contentType, body st
 
 type healthResponse struct {
 	Status    string `json:"status"`
-	Runtime   string `json:"runtime"`
 	Version   string `json:"version"`
 	Uptime    int    `json:"uptime"`
 	Timestamp string `json:"timestamp"`
@@ -322,7 +293,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/health" {
 		body, _ := json.Marshal(healthResponse{
 			Status:    "ok",
-			Runtime:   "go",
 			Version:   version,
 			Uptime:    int(time.Since(startTime).Seconds()),
 			Timestamp: nowISO(),
@@ -333,14 +303,13 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
 	rt := matchRoute(req.URL.EscapedPath())
 	if rt == nil {
-		logJSON("warn", "No route matched", map[string]any{"path": req.URL.EscapedPath()})
+		logJSON("warn", "No route matched", nil)
 		writeSimpleResponse(w, http.StatusNotFound, "text/plain", "Not Found")
 		return
 	}
 
 	meta := requestMeta{
 		start: time.Now(),
-		path:  req.URL.EscapedPath(),
 		route: rt.prefix,
 	}
 	req = req.WithContext(context.WithValue(req.Context(), requestMetaKey{}, meta))
