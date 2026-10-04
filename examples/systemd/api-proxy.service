@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+DynamicUser=yes
 WorkingDirectory=/opt/api-proxy
 Environment=BIND_HOST=0.0.0.0
 Environment=PORT=8000
