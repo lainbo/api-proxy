@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -289,6 +290,11 @@ type healthResponse struct {
 	Timestamp string `json:"timestamp"`
 }
 
+// 客户端（如 magpie）按 Base URL 所在站点的 /favicon.ico 取供应商图标，并按内容识别 SVG
+//
+//go:embed favicon.svg
+var faviconSVG string
+
 func handler(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path == "/health" {
 		body, _ := json.Marshal(healthResponse{
@@ -298,6 +304,11 @@ func handler(w http.ResponseWriter, req *http.Request) {
 			Timestamp: nowISO(),
 		})
 		writeSimpleResponse(w, http.StatusOK, "application/json", string(body))
+		return
+	}
+
+	if req.URL.Path == "/favicon.ico" {
+		writeSimpleResponse(w, http.StatusOK, "image/svg+xml", faviconSVG)
 		return
 	}
 
