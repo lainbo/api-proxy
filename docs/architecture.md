@@ -53,7 +53,7 @@ Nginx、TLS、SNI、前置机、落地机、防火墙和进程守护都位于程
 - 保留 `RawPath`，不改变 `%2F` 等转义路径语义
 - 按转义后的路径段处理上游 base path 的追加与去重
 - 原样转发入站查询字符串
-- 剥离来源/隐私头，由标准库清理 hop-by-hop 头及 `Connection` 动态指定的头；`/bitwarden/` 路由保留 `Origin`，供官方服务端做 CORS 校验
+- 剥离来源/隐私头，由标准库清理 hop-by-hop 头及 `Connection` 动态指定的头；`/gemini` 和 `/bitwarden/` 路由保留 `Origin`，供官方服务端做 CORS 校验，浏览器直连才能通过预检
 - `PROXY_TIMEOUT_MS` 只约束等待上游响应头，不截断已经开始的流式响应
 - 上游支持时使用 HTTP/2，不注入额外响应头
 

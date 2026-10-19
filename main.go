@@ -104,9 +104,10 @@ var pathMappings = [][2]string{
 	{"/bitwarden/events", "https://events.bitwarden.com"},
 }
 
-// Bitwarden 桌面端和 Safari 扩展的请求需要通过官方服务端按 Origin 做的 CORS 预检
+// 这些官方服务端只在请求带 Origin 时返回 CORS 响应头，浏览器直连（如 LobeChat 网页端的 Gemini、
+// Bitwarden 桌面端和 Safari 扩展）缺少它就过不了预检
 func keepsOrigin(prefix string) bool {
-	return strings.HasPrefix(prefix, "/bitwarden/")
+	return prefix == "/gemini" || strings.HasPrefix(prefix, "/bitwarden/")
 }
 
 var routes []route

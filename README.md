@@ -8,6 +8,8 @@
 
 当前包含 OpenAI、Anthropic、Gemini、OpenRouter、xAI、Telegram、Discord、Groq、Cohere、Hugging Face、Together、Novita、Portkey 和 Fireworks 等路径前缀。请求凭据只随请求转发，不写入项目配置。
 
+`/gemini` 路由原样转发 `Origin`：Google 服务端只在请求带它时返回 CORS 响应头，LobeChat 网页端等浏览器直连场景需要它通过预检。
+
 ### Bitwarden
 
 通过 `/bitwarden/` 转发 Bitwarden 美国区官方云（`bitwarden.com`）的 API、身份验证、通知、图标和事件服务，账号、密码库和会员仍由官方服务承载。客户端登录页选择“自托管”后填写：
